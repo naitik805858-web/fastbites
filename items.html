@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FastBites Admin - Menu Items</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f4f6f9; }
+    .admin-layout { display: flex; min-height: 100vh; }
+    .sidebar { width: 220px; background: #2c3e50; color: white; padding: 20px; }
+    .sidebar h2 { margin-top: 0; font-size: 20px; color: #f39c12; }
+    .sidebar ul { list-style: none; padding: 0; margin-top: 30px; }
+    .sidebar li { margin-bottom: 15px; }
+    .sidebar a { color: #ecf0f1; text-decoration: none; font-size: 16px; display: block; padding: 8px; border-radius: 4px; }
+    .sidebar a.active, .sidebar a:hover { background: #34495e; color: #f39c12; }
+    .content { flex: 1; padding: 30px; }
+    table { width: 100%; border-collapse: collapse; background: white; margin-top: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+    th { background: #f8f9fa; }
+    .btn-add { padding: 10px 18px; background: #27ae60; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+    .btn-edit { background: #2980b9; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; margin-right: 5px; }
+    .btn-del { background: #c0392b; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; }
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 1000; justify-content: center; align-items: center; }
+    .modal-content { background: #fff; padding: 25px; border-radius: 8px; width: 90%; max-width: 450px; }
+    .form-group { margin-bottom: 12px; }
+    .form-group label { display: block; margin-bottom: 4px; font-weight: bold; font-size: 14px; }
+    .form-group input, .form-group select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+    .btn-group { display: flex; gap: 10px; margin-top: 15px; }
+  </style>
+</head>
+<body>
+  <div class="admin-layout">
+    <nav class="sidebar">
+      <h2>FastBites Admin</h2>
+      <ul>
+        <li><a href="dashboard.html">Dashboard</a></li>
+        <li><a href="items.html" class="active">Items</a></li>
+        <li><a href="orders.html">Orders</a></li>
+        <li><a href="users.html">Users</a></li>
+        <li><a href="banner.html">Banners</a></li>
+        <li><a href="#" onclick="logout()">Logout</a></li>
+      </ul>
+    </nav>
+
+    <main class="content">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h2>Manage Menu Items</h2>
+        <button class="btn-add" onclick="openModal()">+ Add New Item</button>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Image</th>
+            <th>Name</th>
+            <th>Price</th>
+            <th>Category</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="itemsTableBody">
+          <tr><td colspan="6" align="center">Loading items...</td></tr>
+        </tbody>
+      </table>
+    </main>
+  </div>
+
+  <!-- Modal -->
+  <div id="itemModal" class="modal">
+    <div class="modal-content">
+      <h3 id="modalTitle" style="margin-top:0;">Add / Edit Item</h3>
+      <form id="itemForm" onsubmit="saveItem(event)">
+        <input type="hidden" id="itemId">
+        <div class="form-group">
+          <label>Item Name *</label>
+          <input type="text" id="itemName" required>
+        </div>
+        <div class="form-group">
+          <label>Price (₹) *</label>
+          <input type="number" id="itemPrice" required>
+        </div>
+        <div class="form-group">
+          <label>Category</label>
+          <select id="itemCategory"></select>
+        </div>
+        <div class="form-group">
+          <label>Image URL</label>
+          <input type="url" id="itemImage" placeholder="https://...">
+        </div>
+        <div class="form-group">
+          <label>Short Description</label>
+          <input type="text" id="itemDesc">
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="itemAvailable">
+            <option value="1">In Stock (Available)</option>
+            <option value="0">Out of Stock</option>
+          </select>
+        </div>
+        <div class="btn-group">
+          <button type="submit" style="flex:1; padding: 10px; background: #27ae60; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight:bold;">Save Changes</button>
+          <button type="button" onclick="closeModal()" style="flex:1; padding: 10px; background: #7f8c8d; color: white; border: none; border-radius: 4px; cursor: pointer;">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    const token = localStorage.getItem('admin_token') || localStorage.getItem('fastbites_admin_token');
+    let allItems = [];
+    let allCategories = [];
+
+    if (!token) {
+      window.location.href = 'login.html';
+    }
+
+    async function apiRequest(endpoint, options = {}) {
+      const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token,
+        ...(options.headers || {})
+      };
+      const res = await fetch('/api' + endpoint, { ...options, headers });
+      if (res.status === 401) {
+        localStorage.removeItem('admin_token');
+        localStorage.removeItem('fastbites_admin_token');
+        window.location.href = 'login.html';
+        return null;
+      }
+      return res;
+    }
+
+    async function loadData() {
+      try {
+        const [itemsRes, catsRes] = await Promise.all([
+          apiRequest('/items'),
+          apiRequest('/categories')
+        ]);
+        if (itemsRes) allItems = await itemsRes.json();
+        if (catsRes) allCategories = await catsRes.json();
+
+        const catSelect = document.getElementById('itemCategory');
+        catSelect.innerHTML = '<option value="">Select Category</option>' +
+          allCategories.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+
+        renderTable();
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function renderTable() {
+      const tbody = document.getElementById('itemsTableBody');
+      if (!allItems.length) {
+        tbody.innerHTML = '<tr><td colspan="6" align="center">No items found</td></tr>';
+        return;
+      }
+      tbody.innerHTML = allItems.map(item => `
+        <tr>
+          <td><img src="${item.image_url || 'https://via.placeholder.com/45'}" width="45" height="45" style="object-fit:cover; border-radius:4px;"></td>
+          <td><b>${item.name}</b></td>
+          <td>₹${item.price}</td>
+          <td>${item.category_name || '-'}</td>
+          <td><span style="color: ${item.available ? '#27ae60' : '#c0392b'}; font-weight: bold;">${item.available ? 'In Stock' : 'Out of Stock'}</span></td>
+          <td>
+            <button class="btn-edit" onclick="editItem(${item.id})">Edit</button>
+            <button class="btn-del" onclick="deleteItem(${item.id})">Delete</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function openModal(item = null) {
+      document.getElementById('itemModal').style.display = 'flex';
+      document.getElementById('modalTitle').innerText = item ? 'Edit Item' : 'Add New Item';
+      document.getElementById('itemId').value = item ? item.id : '';
+      document.getElementById('itemName').value = item ? item.name : '';
+      document.getElementById('itemPrice').value = item ? item.price : '';
+      document.getElementById('itemCategory').value = item ? (item.category_id || '') : '';
+      document.getElementById('itemImage').value = item ? (item.image_url || '') : '';
+      document.getElementById('itemDesc').value = item ? (item.description || '') : '';
+      document.getElementById('itemAvailable').value = item ? (item.available !== undefined ? item.available : 1) : 1;
+    }
+
+    function closeModal() {
+      document.getElementById('itemModal').style.display = 'none';
+      document.getElementById('itemForm').reset();
+    }
+
+    function editItem(id) {
+      const item = allItems.find(i => i.id === id);
+      if (item) openModal(item);
+    }
+
+    async function saveItem(e) {
+      e.preventDefault();
+      const id = document.getElementById('itemId').value;
+      const payload = {
+        name: document.getElementById('itemName').value,
+        price: Number(document.getElementById('itemPrice').value),
+        category_id: document.getElementById('itemCategory').value || null,
+        image_url: document.getElementById('itemImage').value,
+        description: document.getElementById('itemDesc').value,
+        available: Number(document.getElementById('itemAvailable').value)
+      };
+
+      const endpoint = id ? `/items/${id}` : '/items';
+      const method = id ? 'PUT' : 'POST';
+
+      const res = await apiRequest(endpoint, {
+        method,
+        body: JSON.stringify(payload)
+      });
+
+      if (res && res.ok) {
+        closeModal();
+        loadData();
+      } else {
+        alert('Failed to save item. Please try again.');
+      }
+    }
+
+    async function deleteItem(id) {
+      if (!confirm('Item delete karna chahte hain?')) return;
+      const res = await apiRequest(`/items/${id}`, { method: 'DELETE' });
+      if (res && res.ok) loadData();
+    }
+
+    function logout() {
+      localStorage.removeItem('admin_token');
+      localStorage.removeItem('fastbites_admin_token');
+      window.location.href = 'login.html';
+    }
+
+    loadData();
+  </script>
+</body>
+</html>
