@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FastBites Admin - Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: #f8fafc; color: #1e293b; }
+    .layout { display: flex; min-height: 100vh; }
+    
+    /* Sidebar Fix */
+    .sidebar { width: 240px; background: #0f172a; color: #f8fafc; padding: 24px 16px; display: flex; flex-direction: column; }
+    .sidebar h2 { font-size: 1.25rem; font-weight: 700; margin-bottom: 32px; display: flex; align-items: center; gap: 8px; color: #f59e0b; }
+    .sidebar nav { display: flex; flex-direction: column; gap: 8px; flex: 1; }
+    .sidebar a { color: #94a3b8; text-decoration: none; padding: 10px 14px; border-radius: 6px; font-size: 0.95rem; display: block; font-weight: 500; }
+    .sidebar a:hover, .sidebar a.active { background: #1e293b; color: #ffffff; }
+    .sidebar .logout-btn { color: #ef4444; border: none; background: none; text-align: left; padding: 10px 14px; font-size: 0.95rem; cursor: pointer; font-weight: 500; }
+
+    /* Main Content */
+    .main-content { flex: 1; padding: 32px; overflow-y: auto; }
+    .header { margin-bottom: 24px; }
+    .header h1 { font-size: 1.5rem; font-weight: 700; }
+    .header p { color: #64748b; font-size: 0.9rem; margin-top: 4px; }
+
+    /* Stats Grid */
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 32px; }
+    .stat-card { background: #ffffff; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; }
+    .stat-card .val { font-size: 1.75rem; font-weight: 700; color: #0f172a; margin-bottom: 4px; }
+    .stat-card .lbl { font-size: 0.85rem; color: #64748b; }
+
+    /* Table */
+    .table-card { background: #ffffff; border-radius: 8px; border: 1px solid #e2e8f0; overflow: hidden; }
+    .table-card h3 { padding: 16px 20px; font-size: 1rem; border-bottom: 1px solid #e2e8f0; }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem; }
+    th { background: #f8fafc; padding: 12px 20px; color: #64748b; font-weight: 600; border-bottom: 1px solid #e2e8f0; }
+    td { padding: 14px 20px; border-bottom: 1px solid #f1f5f9; }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <h2>🍔 FastBites</h2>
+      <nav>
+        <a href="dashboard.html" class="active">Dashboard</a>
+        <a href="items.html">Menu Items</a>
+        <a href="orders.html">Orders</a>
+        <a href="users.html">Users</a>
+        <a href="banner.html">Banners</a>
+      </nav>
+      <button class="logout-btn" onclick="logout()">🚪 Logout</button>
+    </aside>
+
+    <main class="main-content">
+      <div class="header">
+        <h1>Dashboard</h1>
+        <p>Quick overview of your store</p>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="val" id="totalUsers">-</div>
+          <div class="lbl">Total Users</div>
+        </div>
+        <div class="stat-card">
+          <div class="val" id="totalOrders">-</div>
+          <div class="lbl">Total Orders</div>
+        </div>
+        <div class="stat-card">
+          <div class="val" id="pendingPayments">-</div>
+          <div class="lbl">Pending / COD</div>
+        </div>
+        <div class="stat-card">
+          <div class="val" id="cancelledOrders">-</div>
+          <div class="lbl">Cancelled Orders</div>
+        </div>
+      </div>
+
+      <div class="table-card">
+        <h3>Recent Orders</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Order ID</th>
+              <th>Customer</th>
+              <th>Total</th>
+              <th>Payment</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="ordersBody">
+            <tr><td colspan="5" align="center" style="padding: 24px; color: #64748b;">Loading data...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const token = localStorage.getItem('fastbites_admin_token') || localStorage.getItem('admin_token');
+
+    if (!token) {
+      window.location.href = 'login.html';
+    }
+
+    async function apiGet(endpoint) {
+      const res = await fetch('/api' + endpoint, {
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json'
+        }
+      });
+      if (res.status === 401) {
+        logout();
+        return null;
+      }
+      return res.json();
+    }
+
+    async function loadDashboard() {
+      try {
+        const [users, orders] = await Promise.all([
+          apiGet('/users'),
+          apiGet('/orders')
+        ]);
+
+        if (users) {
+          document.getElementById('totalUsers').innerText = users.length;
+        }
+
+        if (orders) {
+          document.getElementById('totalOrders').innerText = orders.length;
+          const pending = orders.filter(o => o.payment_status === 'PENDING').length;
+          const cancelled = orders.filter(o => o.order_status === 'CANCELLED').length;
+          
+          document.getElementById('pendingPayments').innerText = pending;
+          document.getElementById('cancelledOrders').innerText = cancelled;
+
+          const tbody = document.getElementById('ordersBody');
+          if (!orders.length) {
+            tbody.innerHTML = '<tr><td colspan="5" align="center" style="padding:24px; color:#64748b;">No recent orders</td></tr>';
+            return;
+          }
+
+          tbody.innerHTML = orders.slice(0, 10).map(o => `
+            <tr>
+              <td>#${o.id}</td>
+              <td><b>${o.customer_name || 'Customer'}</b></td>
+              <td>₹${o.total}</td>
+              <td><span style="color: ${o.payment_status === 'PAID' ? '#16a34a' : '#ea580c'}; font-weight:600;">${o.payment_status}</span></td>
+              <td><b>${o.order_status}</b></td>
+            </tr>
+          `).join('');
+        }
+      } catch (err) {
+        console.error('Failed to load dashboard data:', err);
+      }
+    }
+
+    function logout() {
+      localStorage.removeItem('fastbites_admin_token');
+      localStorage.removeItem('admin_token');
+      window.location.href = 'login.html';
+    }
+
+    loadDashboard();
+  </script>
+</body>
+</html>
