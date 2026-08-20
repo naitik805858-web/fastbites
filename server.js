@@ -10,7 +10,7 @@ const PORT = process.env.PORT || 4000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
 // ---------- In-memory admin session tokens with expiry (24 hours) ----------
-const adminSessions = new Map(); // token -> expiryTimestamp
+const adminSessions = new Map();
 const SESSION_DURATION_MS = 24 * 60 * 60 * 1000;
 
 function newAdminSession() {
@@ -18,6 +18,7 @@ function newAdminSession() {
   adminSessions.set(token, Date.now() + SESSION_DURATION_MS);
   return token;
 }
+
 function isValidAdminSession(token) {
   const expiry = adminSessions.get(token);
   if (!expiry) return false;
@@ -27,6 +28,7 @@ function isValidAdminSession(token) {
   }
   return true;
 }
+
 setInterval(() => {
   const now = Date.now();
   for (const [token, expiry] of adminSessions) {
@@ -34,8 +36,8 @@ setInterval(() => {
   }
 }, 60 * 60 * 1000);
 
-// ---------- User session tokens (so profile edits / orders can't be spoofed by guessing IDs) ----------
-const userSessions = new Map(); // token -> { userId, expiry }
+// ---------- User session tokens ----------
+const userSessions = new Map();
 const USER_SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 function newUserSession(userId) {
@@ -43,6 +45,7 @@ function newUserSession(userId) {
   userSessions.set(token, { userId, expiry: Date.now() + USER_SESSION_DURATION_MS });
   return token;
 }
+
 function getUserIdFromRequest(req) {
   const auth = req.headers['authorization'] || '';
   const token = auth.replace('Bearer ', '').trim();
@@ -54,6 +57,7 @@ function getUserIdFromRequest(req) {
   }
   return session.userId;
 }
+
 setInterval(() => {
   const now = Date.now();
   for (const [token, session] of userSessions) {
@@ -61,11 +65,11 @@ setInterval(() => {
   }
 }, 60 * 60 * 1000);
 
-// ---------- Basic brute-force / spam protection (per IP + identifier) ----------
+// ---------- Rate Limiting / Abuse Protection ----------
 const loginAttempts = new Map();
-const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 mins
 const RATE_LIMIT_MAX_ATTEMPTS = 8;
-const ORDER_RATE_LIMIT_MAX = 20; // orders per 15 min per IP
+const ORDER_RATE_LIMIT_MAX = 20;
 
 function isRateLimited(key, max = RATE_LIMIT_MAX_ATTEMPTS) {
   const entry = loginAttempts.get(key);
@@ -76,6 +80,7 @@ function isRateLimited(key, max = RATE_LIMIT_MAX_ATTEMPTS) {
   }
   return entry.count >= max;
 }
+
 function recordFailedAttempt(key) {
   const entry = loginAttempts.get(key);
   if (!entry || Date.now() - entry.firstAttempt > RATE_LIMIT_WINDOW_MS) {
@@ -84,7 +89,9 @@ function recordFailedAttempt(key) {
     entry.count++;
   }
 }
+
 function clearAttempts(key) { loginAttempts.delete(key); }
+
 function clientKey(req, identifier) {
   const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
   return `${ip}:${identifier}`;
@@ -134,6 +141,7 @@ function requireAdmin(req) {
   return isValidAdminSession(token);
 }
 
+// ---------- Static File Serving (Auto-detecting nested / root folders) ----------
 function serveStatic(req, res, urlPath) {
   let reqPath = urlPath === '/' ? '/index.html' : urlPath;
   try {
@@ -141,12 +149,18 @@ function serveStatic(req, res, urlPath) {
   } catch (e) {}
 
   const cleanPath = path.normalize(reqPath).replace(/^(\.\.[\/\\])+/, '');
+  const fileName = path.basename(cleanPath) || 'index.html';
 
-  // Check in public directory, root directory, or flat filename
   const candidates = [
     path.join(PUBLIC_DIR, cleanPath),
     path.join(__dirname, cleanPath),
-    path.join(__dirname, path.basename(cleanPath))
+    path.join(__dirname, 'frontend', cleanPath),
+    path.join(__dirname, 'client', cleanPath),
+    path.join(__dirname, 'src', cleanPath),
+    path.join(PUBLIC_DIR, fileName),
+    path.join(__dirname, fileName),
+    path.join(__dirname, 'frontend', fileName),
+    path.join(__dirname, 'client', fileName)
   ];
 
   let targetFile = null;
@@ -180,6 +194,7 @@ function serveStatic(req, res, urlPath) {
       '.png': 'image/png',
       '.jpg': 'image/jpeg',
       '.jpeg': 'image/jpeg',
+      '.webp': 'image/webp',
       '.svg': 'image/svg+xml',
       '.ico': 'image/x-icon',
       '.mp4': 'video/mp4'
@@ -194,12 +209,11 @@ function serveStatic(req, res, urlPath) {
   });
 }
 
-// ---------- Route handlers ----------
-
+// ---------- API Route Handlers ----------
 async function handleApi(req, res, urlPath, query) {
   const method = req.method;
 
-  // ===== ADMIN AUTH =====
+  // Admin Auth
   if (urlPath === '/api/admin/login' && method === 'POST') {
     const { username, password } = await readBody(req);
     const key = clientKey(req, 'admin:' + (username || ''));
@@ -226,14 +240,14 @@ async function handleApi(req, res, urlPath, query) {
     return sendJson(res, 200, { success: true });
   }
 
-  // Everything below requires an admin token
+  // Require Admin Token for restricted endpoints
   if (urlPath.startsWith('/api/admin') || ['/api/users', '/api/orders', '/api/categories', '/api/items', '/api/banners'].some(p => urlPath.startsWith(p))) {
     if (!requireAdmin(req)) {
       return sendJson(res, 401, { error: 'Unauthorized. Please login again.' });
     }
   }
 
-  // ===== USERS (with computed stats) =====
+  // Users Management
   if (urlPath === '/api/users' && method === 'GET') {
     const users = await db.prepare('SELECT id, name, username, mobile, address, created_at FROM users').all();
     const withStats = [];
@@ -246,7 +260,7 @@ async function handleApi(req, res, urlPath, query) {
     return sendJson(res, 200, withStats);
   }
 
-  // ===== ORDERS =====
+  // Orders Management
   if (urlPath === '/api/orders' && method === 'GET') {
     const orders = await db.prepare(`
       SELECT o.*, u.name as customer_name, u.username, u.mobile, u.address as user_address
@@ -275,7 +289,7 @@ async function handleApi(req, res, urlPath, query) {
     return sendJson(res, 200, { success: true });
   }
 
-  // ===== CATEGORIES =====
+  // Categories
   if (urlPath === '/api/categories' && method === 'GET') {
     return sendJson(res, 200, await db.prepare('SELECT * FROM categories ORDER BY name').all());
   }
@@ -295,7 +309,7 @@ async function handleApi(req, res, urlPath, query) {
     return sendJson(res, 200, { success: true });
   }
 
-  // ===== ITEMS =====
+  // Items
   if (urlPath === '/api/items' && method === 'GET') {
     const items = await db.prepare(`
       SELECT items.*, categories.name as category_name
@@ -335,7 +349,7 @@ async function handleApi(req, res, urlPath, query) {
     return sendJson(res, 200, { success: true });
   }
 
-  // ===== BANNERS =====
+  // Banners
   if (urlPath === '/api/banners' && method === 'GET') {
     return sendJson(res, 200, await db.prepare('SELECT * FROM banners ORDER BY sort_order, created_at DESC').all());
   }
@@ -360,7 +374,7 @@ async function handleApi(req, res, urlPath, query) {
     return sendJson(res, 200, { success: true });
   }
 
-  // ===== PUBLIC: for the FRONTEND app (no admin token needed) =====
+  // Public Routes (Frontend App)
   if (urlPath === '/api/public/signup' && method === 'POST') {
     const { name, username, mobile, address, password } = await readBody(req);
     if (!name || !username || !mobile || !password) return sendJson(res, 400, { error: 'Missing fields' });
@@ -386,6 +400,7 @@ async function handleApi(req, res, urlPath, query) {
       return sendJson(res, 400, { error: 'Mobile or username already registered' });
     }
   }
+
   const publicProfileMatch = urlPath.match(/^\/api\/public\/users\/(\d+)$/);
   if (publicProfileMatch && method === 'PUT') {
     const requestedId = Number(publicProfileMatch[1]);
@@ -427,6 +442,7 @@ async function handleApi(req, res, urlPath, query) {
     const token = newUserSession(user.id);
     return sendJson(res, 200, { ...safeUser, token });
   }
+
   if (urlPath === '/api/public/order' && method === 'POST') {
     const authedUserId = getUserIdFromRequest(req);
     if (!authedUserId) return sendJson(res, 401, { error: 'Please log in again to place an order.' });
@@ -451,6 +467,7 @@ async function handleApi(req, res, urlPath, query) {
     `).run(authedUserId, JSON.stringify(items), total, payment_mode || 'COD', payment_status, (delivery_address || '').slice(0, 500));
     return sendJson(res, 201, { id: Number(info.lastInsertRowid) });
   }
+
   const myOrdersMatch = urlPath.match(/^\/api\/public\/orders\/(\d+)$/);
   if (myOrdersMatch && method === 'GET') {
     const requestedId = Number(myOrdersMatch[1]);
@@ -463,7 +480,7 @@ async function handleApi(req, res, urlPath, query) {
     `).all(requestedId);
     return sendJson(res, 200, orders.map(o => ({ ...o, items: JSON.parse(o.items_json) })));
   }
-  // Single order detail — used for "view full details" on a specific order
+
   const myOrderDetailMatch = urlPath.match(/^\/api\/public\/order\/(\d+)$/);
   if (myOrderDetailMatch && method === 'GET') {
     const orderId = Number(myOrderDetailMatch[1]);
@@ -482,9 +499,11 @@ async function handleApi(req, res, urlPath, query) {
     `).all();
     return sendJson(res, 200, items);
   }
+
   if (urlPath === '/api/public/categories' && method === 'GET') {
     return sendJson(res, 200, await db.prepare('SELECT * FROM categories ORDER BY name').all());
   }
+
   if (urlPath === '/api/public/banners' && method === 'GET') {
     return sendJson(res, 200, await db.prepare('SELECT * FROM banners WHERE active = 1 ORDER BY sort_order').all());
   }
@@ -492,7 +511,7 @@ async function handleApi(req, res, urlPath, query) {
   return sendJson(res, 404, { error: 'Route not found' });
 }
 
-// ---------- Server ----------
+// ---------- Main HTTP Server ----------
 const server = http.createServer(async (req, res) => {
   const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
   const urlPath = parsedUrl.pathname;
@@ -523,7 +542,7 @@ const server = http.createServer(async (req, res) => {
   serveStatic(req, res, urlPath);
 });
 
-// Initialize the database (create tables, seed admin/categories) BEFORE accepting requests
+// Start Server
 initDb().then(() => {
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`\n🚀 FastBites backend running at http://0.0.0.0:${PORT}`);
