@@ -1,0 +1,15 @@
+{
+  "name": "fastbites-backend",
+  "version": "1.0.0",
+  "description": "FastBites backend + admin panel (uses Turso cloud database for permanent storage)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.14.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
