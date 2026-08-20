@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Orders — FastBites Admin</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="shell">
+    <div class="sidebar">
+      <h1>🍔 FastBites</h1>
+      <div id="sidebar-nav"></div>
+      <div class="logout"><a href="#" onclick="logout()">🚪 Logout</a></div>
+    </div>
+    <div class="main">
+      <h2>Orders</h2>
+      <p class="subtitle">All orders — update payment & preparation status here</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Order</th><th>Customer</th><th>Items</th><th>Total</th>
+              <th>Payment</th><th>Delivery Address</th><th>Status</th><th>Placed</th>
+            </tr>
+          </thead>
+          <tbody id="ordersBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+<script src="common.js"></script>
+<script>
+  renderSidebar('orders');
+
+  const STATUS_OPTIONS = ['PLACED', 'PREPARING', 'COOKING', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'];
+
+  async function load() {
+    const res = await apiFetch('/api/orders');
+    if (!res) return;
+    const orders = await res.json();
+    const body = document.getElementById('ordersBody');
+    if (orders.length === 0) {
+      body.innerHTML = '<tr><td colspan="8" class="empty-state">No orders yet</td></tr>';
+      return;
+    }
+    body.innerHTML = orders.map(o => `
+      <tr>
+        <td>#${o.id}</td>
+        <td><b>${escapeHtml(o.customer_name)}</b><br><span style="color:#999;font-size:11px;">@${escapeHtml(o.username)} · ${escapeHtml(o.mobile)}</span></td>
+        <td style="max-width:180px; font-size:12px;">${o.items.map(it => `${escapeHtml(it.name)} x${it.qty}`).join(', ')}</td>
+        <td><b>₹${o.total}</b></td>
+        <td>
+          <span class="badge ${o.payment_mode === 'UPI' ? 'paid' : 'cod'}">${o.payment_mode}</span><br>
+          <select class="status-select" style="margin-top:6px;" onchange="updatePayment(${o.id}, this.value)">
+            <option value="PAID" ${o.payment_status === 'PAID' ? 'selected' : ''}>Paid</option>
+            <option value="PENDING" ${o.payment_status === 'PENDING' ? 'selected' : ''}>Pending / COD</option>
+          </select>
+        </td>
+        <td style="max-width:180px; font-size:12px;">${escapeHtml(o.delivery_address) || escapeHtml(o.user_address) || '—'}</td>
+        <td>
+          <select class="status-select" onchange="updateStatus(${o.id}, this.value)">
+            ${STATUS_OPTIONS.map(s => `<option value="${s}" ${o.order_status === s ? 'selected' : ''}>${s.replace(/_/g,' ')}</option>`).join('')}
+          </select>
+        </td>
+        <td>${timeAgo(o.created_at)}</td>
+      </tr>
+    `).join('');
+  }
+
+  async function updateStatus(id, order_status) {
+    await apiFetch(`/api/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify({ order_status }) });
+  }
+  async function updatePayment(id, payment_status) {
+    await apiFetch(`/api/orders/${id}/payment`, { method: 'PATCH', body: JSON.stringify({ payment_status }) });
+  }
+
+  load();
+</script>
+</body>
+</html>

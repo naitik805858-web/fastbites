@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Banner — FastBites Admin</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="shell">
+    <div class="sidebar">
+      <h1>🍔 FastBites</h1>
+      <div id="sidebar-nav"></div>
+      <div class="logout"><a href="#" onclick="logout()">🚪 Logout</a></div>
+    </div>
+    <div class="main">
+      <h2>Banner</h2>
+      <p class="subtitle">Add a home-screen banner using an image link or a video link</p>
+
+      <div class="form-card">
+        <label>Title (optional)</label>
+        <input type="text" id="bTitle" placeholder="e.g. Weekend Offer">
+        <label>Image URL</label>
+        <input type="text" id="bImage" placeholder="https://example.com/banner.jpg">
+        <label>OR Video URL</label>
+        <input type="text" id="bVideo" placeholder="https://example.com/banner.mp4">
+        <label>Sort Order (lower = shows first)</label>
+        <input type="number" id="bOrder" placeholder="0" value="0">
+        <button class="btn" onclick="addBanner()">Add Banner</button>
+      </div>
+
+      <div class="section-title">Current Banners</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Preview</th><th>Title</th><th>Type</th><th>Active</th><th></th></tr></thead>
+          <tbody id="bannersBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+<script src="common.js"></script>
+<script>
+  renderSidebar('banner');
+
+  async function load() {
+    const res = await apiFetch('/api/banners');
+    if (!res) return;
+    const banners = await res.json();
+    const body = document.getElementById('bannersBody');
+    if (banners.length === 0) {
+      body.innerHTML = '<tr><td colspan="5" class="empty-state">No banners yet</td></tr>';
+      return;
+    }
+    body.innerHTML = banners.map(b => `
+      <tr>
+        <td>${b.image_url
+            ? `<img class="banner-thumb" src="${escapeHtml(b.image_url)}">`
+            : (b.video_url ? `<video class="banner-thumb" src="${escapeHtml(b.video_url)}" muted></video>` : '—')}</td>
+        <td>${escapeHtml(b.title) || '<span style="color:#aaa;">—</span>'}</td>
+        <td>${b.video_url ? '🎬 Video' : '🖼️ Image'}</td>
+        <td>
+          <label style="display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" ${b.active ? 'checked' : ''} onchange="toggleBanner(${b.id})"> ${b.active ? 'Active' : 'Hidden'}
+          </label>
+        </td>
+        <td><button class="btn danger btn-sm" onclick="deleteBanner(${b.id})">Delete</button></td>
+      </tr>
+    `).join('');
+  }
+
+  async function addBanner() {
+    const title = document.getElementById('bTitle').value.trim();
+    const image_url = document.getElementById('bImage').value.trim();
+    const video_url = document.getElementById('bVideo').value.trim();
+    const sort_order = Number(document.getElementById('bOrder').value) || 0;
+    if (!image_url && !video_url) return alert('Provide an image link or a video link');
+    const r = await apiFetch('/api/banners', { method: 'POST', body: JSON.stringify({ title, image_url, video_url, sort_order }) });
+    const data = await r.json();
+    if (!r.ok) return alert(data.error || 'Failed to add banner');
+    ['bTitle','bImage','bVideo'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('bOrder').value = 0;
+    load();
+  }
+
+  async function toggleBanner(id) {
+    await apiFetch(`/api/banners/${id}/toggle`, { method: 'PATCH' });
+    load();
+  }
+
+  async function deleteBanner(id) {
+    if (!confirm('Delete this banner?')) return;
+    await apiFetch(`/api/banners/${id}`, { method: 'DELETE' });
+    load();
+  }
+
+  load();
+</script>
+</body>
+</html>

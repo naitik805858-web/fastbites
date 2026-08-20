@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Users — FastBites Admin</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="shell">
+    <div class="sidebar">
+      <h1>🍔 FastBites</h1>
+      <div id="sidebar-nav"></div>
+      <div class="logout"><a href="#" onclick="logout()">🚪 Logout</a></div>
+    </div>
+    <div class="main">
+      <h2>Users</h2>
+      <p class="subtitle">Every customer who has signed up, along with their order stats</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th><th>Username</th><th>Mobile</th><th>Address</th>
+              <th>Total Orders</th><th>✅ Successful</th><th>❌ Cancelled</th><th>Joined</th>
+            </tr>
+          </thead>
+          <tbody id="usersBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+<script src="common.js"></script>
+<script>
+  renderSidebar('users');
+
+  async function load() {
+    const res = await apiFetch('/api/users');
+    if (!res) return;
+    const users = await res.json();
+    const body = document.getElementById('usersBody');
+    if (users.length === 0) {
+      body.innerHTML = '<tr><td colspan="8" class="empty-state">No users registered yet</td></tr>';
+      return;
+    }
+    body.innerHTML = users.map(u => `
+      <tr>
+        <td><b>${escapeHtml(u.name)}</b></td>
+        <td>@${escapeHtml(u.username)}</td>
+        <td>${escapeHtml(u.mobile)}</td>
+        <td style="max-width:220px;">${escapeHtml(u.address) || '<span style="color:#aaa;">—</span>'}</td>
+        <td>${u.total_orders}</td>
+        <td><span class="badge delivered">${u.successful_orders}</span></td>
+        <td>${u.cancelled_orders > 0 ? `<span class="badge cancelled">${u.cancelled_orders}</span>` : u.cancelled_orders}</td>
+        <td>${timeAgo(u.created_at)}</td>
+      </tr>
+    `).join('');
+  }
+
+  load();
+</script>
+</body>
+</html>
